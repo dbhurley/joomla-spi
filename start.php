@@ -11,19 +11,20 @@ class JoomlaSingleStart
 	public function __construct()
 	{
 		// Controller
-		if(isset($_REQUEST['task']) && $_REQUEST['task']=='go') 
+		if(isset($_REQUEST['task']) && $_REQUEST['task']=='go')
 		{
 			self::download();
-		} else 
+		} else
 		{
 			self::start();
+			file_put_contents( dirname( __FILE__).'/progress', null );
 		}
 	}
 
 	// Model
 	function download()
 	{
-		if(self::getZip()) 
+		if(self::getZip())
 		{
 			// get the absolute path to $file
 			$path = pathinfo(realpath($this->localfile), PATHINFO_DIRNAME);
@@ -35,15 +36,14 @@ class JoomlaSingleStart
 			  // extract it to the path we determined above
 			  $zip->extractTo($path);
 			  $zip->close();
-			  
-			  unlink($this->localfile);
 
-			  header("Location: index.php");
-			} else 
+			  unlink($this->localfile);
+			  exit( true );
+			} else
 			{
 			  echo "No Go, Bro.";
 			}
-		} else 
+		} else
 		{
 			echo "Dude, no DL.";
 		}
@@ -58,15 +58,19 @@ class JoomlaSingleStart
 		set_time_limit(0);
 		$fp = fopen($this->localfile, 'ab+');
 		$ch = curl_init($link);
-    	
+
 		curl_setopt($ch, CURLOPT_TIMEOUT, 50);
 		curl_setopt($ch, CURLOPT_FILE, $fp); // write curl response to file
 		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-
+		curl_setopt( $ch, CURLOPT_NOPROGRESS, false );
+		curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, function ( $total, $downloaded ) {
+			file_put_contents( dirname( __FILE__).'/progress', json_encode( array( 'progress' => round( ( $downloaded / $total ) * 100 ) ) ) );
+		} );
 		$result = curl_exec($ch);
 		curl_close($ch);
 		fclose($fp);
-
+		unlink( dirname( __FILE__).'/progress' );
+		unlink( dirname( __FILE__).'/start.php' );
 		return $result;
 	}
 
@@ -85,6 +89,7 @@ class JoomlaSingleStart
 					a.navbar-brand {background: url('http://cdn.joomla.org/images/four-dots.gif') no-repeat 10px 48%; padding-left: 30px;}
 				</style>
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 			</head>
 			<body>
 				 <div class="container">
@@ -125,7 +130,7 @@ class JoomlaSingleStart
 							$dir_class = "alert alert-danger";
 							$msg = "<p class='alert alert-danger'><span class='glyphicon glyphicon-warning-sign'></span> This path is not writable. Please change permissions before continuing.</p>";
 							$continue = "disabled";
-						} else 
+						} else
 						{
 							$dir_class = "well well-small";
 							$msg = "";
@@ -140,16 +145,55 @@ class JoomlaSingleStart
 				        <h1>Start Installation</h1>
 				        <p>This installer will download the latest Joomla! release and prepare the installation directly on your server. The following directory will be used:</p>
 				        <p class="<?php echo $dir_class; ?>"><?php echo dirname(__FILE__); ?></p>
-				       	<p><a id="go" class="btn btn-primary btn-lg <?php echo $continue; ?>" data-loading-text="Downloading..." href="start.php?task=go">Download & Start Install</a></p>
+					    <p>
+					      <div class="hide progressMsg">
+						      Progress: <span class="label label-info">downloading Joomla!</span>
+					      </div>
+					      <div class="progress progress-striped ">
+					        <div class="progress-bar progress-bar-info" role="progressbar" style="width: 0%">
+					        </div>
+					      </div>
+					    </p>
+				       	<p><a id="go" class="btn btn-primary btn-lg <?php echo $continue; ?>" data-loading-text="Downloading...">Download & Start Install</a></p>
 				      </div>
 
 				    </div> <!-- /container -->
 
 				     <script src="//code.jquery.com/jquery.js"></script>
 				     <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
+				 <script type="text/javascript">
+					 var finished = false;
+					 function progress()
+					 {
+						 jQuery.ajax( { 'url': 'progress', 'type': 'post', 'dataType': 'json' } )
+								 .done( function( msg ) {
+									 jQuery( '.progress-bar' ).css( 'width',  msg.progress + '%' );
+									 jQuery( '.label-info' ).html(  msg.progress + '%' );
+								 } );
+						 if( !( finished ) ) {
+							 setTimeout( function() { progress(); }, 100 );
+						 }
+					 }
+						jQuery( document ).ready( function ()
+						{
+							jQuery( '#go' ).click( function( ) {
+								jQuery( '.progress' ).removeClass( 'hide' );
+								jQuery( '.progressMsg' ).removeClass( 'hide' );
+								jQuery( '#go' ).addClass( 'hide' );
+								setTimeout( function() { progress(); }, 1000 );
+								jQuery.ajax( { 'url': 'start.php', 'data': { 'task': 'go' }, 'type': 'post', 'dataType': 'text' } )
+										.done( function() {
+											jQuery( '.progress-bar' ).css( 'width',  '100%' );
+											jQuery( '.label-info' ).html(  '100%' );
+											finished = true;
+											window.location = 'index.php';
+										} );
+							} );
+						} )
+					</script>
 			</body>
 		</html>
-	<?php } 
+	<?php }
 }
 
 new JoomlaSingleStart;
